@@ -11,6 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+import json
 
 # Locate .env file - looks in project root (parent of backend/)
 # Works from both project root and backend directory
@@ -74,9 +76,19 @@ class Settings(BaseSettings):
 
     # ── CORS ─────────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-    ]
+    "http://localhost:3000",
+    "http://localhost:5173",
+]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return [i.strip() for i in v.split(",")]
+        return v
 
     # ── Celery ───────────────────────────────────────────────────────────
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
