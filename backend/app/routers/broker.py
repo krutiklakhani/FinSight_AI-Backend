@@ -251,7 +251,14 @@ async def list_connections(
 
 
 @router.delete("/disconnect/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
-@router.delete("/connections/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/disconnect/{connection_id}",
+    status_code=status.HTTP_200_OK,
+)
+@router.delete(
+    "/connections/{connection_id}",
+    status_code=status.HTTP_200_OK,
+)
 async def disconnect_broker(
     connection_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
