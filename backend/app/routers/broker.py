@@ -250,7 +250,7 @@ async def list_connections(
     return [BrokerConnectionResponse.model_validate(c) for c in connections]
 
 
-@router.delete("/disconnect/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
+
 @router.delete(
     "/disconnect/{connection_id}",
     status_code=status.HTTP_200_OK,
@@ -263,7 +263,7 @@ async def disconnect_broker(
     connection_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> None:
+)-> None:
     """Deactivate a broker connection."""
     result = await db.execute(
         select(BrokerConnection).where(
