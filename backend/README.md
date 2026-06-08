@@ -377,6 +377,7 @@ SECRET_KEY=<64+ char random string>
 ENCRYPTION_KEY=<Fernet key>
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
+CORS_ORIGINS=["https://fin-sight-ai-frontend.vercel.app","http://localhost:3000"]
 ```
 
 ### Broker APIs (optional - uses simulator if empty)

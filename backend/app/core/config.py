@@ -76,9 +76,11 @@ class Settings(BaseSettings):
 
     # ── CORS ─────────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-]
+        "https://fin-sight-ai-frontend.vercel.app",
+        "https://fin-sight-ai-frontend-1hafyqt9d.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ]
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
