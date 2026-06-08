@@ -46,6 +46,17 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     DEBUG: bool = False
 
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_flag(cls, value):
+        if isinstance(value, str):
+            normalised = value.strip().lower()
+            if normalised in {"1", "true", "yes", "on", "debug"}:
+                return True
+            if normalised in {"0", "false", "no", "off", "release", "prod", "production"}:
+                return False
+        return value
+
     # ── Database (PostgreSQL + asyncpg) ──────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/finsight"
 
