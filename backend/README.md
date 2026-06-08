@@ -3,7 +3,7 @@
 > **Institution-grade portfolio analytics dashboard** for secure portfolio visualization, AI-powered insights, and real-time market data.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
+[![Python 3.14.3](https://img.shields.io/badge/Python-3.14.3-blue)](https://www.python.org/)
 [![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-green)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org/)
@@ -96,7 +96,7 @@ FinSight AI is **100% READ-ONLY**:
 ```
 Frontend          Backend           Database        Infrastructure
 ├─ Next.js 15     ├─ FastAPI        ├─ PostgreSQL   ├─ Docker
-├─ React 19       ├─ Python 3.11+   ├─ Redis        ├─ Docker Compose
+├─ React 19       ├─ Python 3.14.3  ├─ Redis        ├─ Docker Compose
 ├─ TypeScript     ├─ SQLAlchemy     ├─ Celery       └─ (Deploy to
 ├─ Tailwind CSS   ├─ Pydantic       └─ Alembic      Vercel/Railway/AWS)
 ├─ shadcn/ui      └─ JWT + OAuth2
@@ -307,13 +307,15 @@ NEXT_PUBLIC_API_URL=https://api.yourapp.com/api/v1
 NEXT_PUBLIC_WS_URL=wss://api.yourapp.com/api/v1/ws
 ```
 
-### Backend (Railway/Render)
+### Backend (Render Free Tier)
 ```bash
 # Push code, set environment variables:
 DATABASE_URL=postgresql://...
 REDIS_URL=redis://...
 SECRET_KEY=...
 ENCRYPTION_KEY=...
+
+# Render will provide PORT automatically; the backend listens on it.
 ```
 
 ### Database (Neon/Supabase)
