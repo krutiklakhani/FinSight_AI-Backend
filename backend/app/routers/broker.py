@@ -87,7 +87,7 @@ async def connect_zerodha(
     await cache_set(f"zerodha_state:{state}", str(current_user.id), ttl=600)
     client = ZerodhaClient()
     login_url = client.get_login_url()
-    # Append state parameter so Zerodha passes it back in the callback
+    # Note: we append state but Zerodha may not echo it back; callback handles both cases
     login_url_with_state = f"{login_url}&state={state}"
     return {"login_url": login_url_with_state, "state": state}
 
@@ -95,26 +95,31 @@ async def connect_zerodha(
 @router.get("/callback/zerodha")
 async def callback_zerodha(
     request_token: str,
-    state: str,
+    state: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     """Handle the OAuth callback from Zerodha, store encrypted token and sync."""
-    # Look up user from Redis using state (set during initial OAuth request)
-    user_id_str = await cache_get(f"zerodha_state:{state}")
-    if not user_id_str:
-        frontend_url = settings.FRONTEND_URL.rstrip("/")
-        return RedirectResponse(
-            url=f"{frontend_url}/profile?broker=zerodha&status=error&message=State+expired",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
+    frontend_url = settings.FRONTEND_URL.rstrip("/")
     
-    # Fetch the user from the database
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
-    current_user = result.scalar_one_or_none()
+    # Try to look up user from state first (if Zerodha passed it back)
+    current_user = None
+    if state:
+        user_id_str = await cache_get(f"zerodha_state:{state}")
+        if user_id_str:
+            result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
+            current_user = result.scalar_one_or_none()
+    
+    # If state didn't work, check if request_token is mapped to a user
     if not current_user:
-        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        user_id_str = await cache_get(f"zerodha_token:{request_token}")
+        if user_id_str:
+            result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
+            current_user = result.scalar_one_or_none()
+    
+    # If we still don't have a user, return error
+    if not current_user:
         return RedirectResponse(
-            url=f"{frontend_url}/profile?broker=zerodha&status=error&message=User+not+found",
+            url=f"{frontend_url}/profile?broker=zerodha&status=error&message=Session+expired",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     
