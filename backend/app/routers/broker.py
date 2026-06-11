@@ -49,11 +49,12 @@ async def connect_zerodha(
     """Connect Zerodha account using direct credentials or return OAuth login URL."""
     creds = payload.credentials if payload else {}
     api_key = creds.get("api_key") or creds.get("apiKey")
+    api_secret = creds.get("api_secret") or creds.get("apiSecret")
     access_token = creds.get("access_token") or creds.get("accessToken")
     
     if api_key and access_token:
         # Bypass OAuth, connect directly
-        client = ZerodhaClient(access_token=access_token, api_key=api_key)
+        client = ZerodhaClient(access_token=access_token, api_key=api_key, api_secret=api_secret)
         try:
             profile = await client.get_profile()
         except Exception as e:
@@ -88,7 +89,19 @@ async def connect_zerodha(
     await cache_set(f"zerodha_state:{state}", str(current_user.id), ttl=600)
     callback_token = secrets.token_urlsafe(32)
     await cache_set(f"zerodha_callback:{callback_token}", str(current_user.id), ttl=600)
-    client = ZerodhaClient()
+    if api_key:
+        await cache_set(f"zerodha_api_key:{callback_token}", api_key, ttl=600)
+        await cache_set(f"zerodha_api_key:{state}", api_key, ttl=600)
+    if api_secret:
+        await cache_set(f"zerodha_secret:{callback_token}", api_secret, ttl=600)
+        await cache_set(f"zerodha_secret:{state}", api_secret, ttl=600)
+    try:
+        client = ZerodhaClient()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Zerodha login is not configured on this deployment. Set KITE_API_KEY and KITE_API_SECRET on Render, or enable KITE_SIMULATOR_MODE for local testing.",
+        ) from exc
     login_url = client.get_login_url()
     # Note: we append state but Zerodha may not echo it back; callback handles both cases
     login_url_with_state = f"{login_url}&state={state}"
@@ -127,6 +140,8 @@ async def callback_zerodha(
     # Prefer the short-lived cookie set at connect time, since Zerodha does not
     # reliably echo custom query parameters back on the callback.
     cookie_token = request.cookies.get("zerodha_callback_token") if request else None
+    callback_api_key = None
+    callback_secret = None
 
     # Try to look up user from state first (if Zerodha passed it back)
     current_user = None
@@ -141,6 +156,8 @@ async def callback_zerodha(
         if user_id_str:
             result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
             current_user = result.scalar_one_or_none()
+        callback_api_key = await cache_get(f"zerodha_api_key:{cookie_token}")
+        callback_secret = await cache_get(f"zerodha_secret:{cookie_token}")
     
     # If state didn't work, check if request_token is mapped to a user
     if not current_user:
@@ -148,6 +165,11 @@ async def callback_zerodha(
         if user_id_str:
             result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
             current_user = result.scalar_one_or_none()
+
+    if not callback_api_key and state:
+        callback_api_key = await cache_get(f"zerodha_api_key:{state}")
+    if not callback_secret and state:
+        callback_secret = await cache_get(f"zerodha_secret:{state}")
     
     # If we still don't have a user, return error
     if not current_user:
@@ -156,8 +178,8 @@ async def callback_zerodha(
             status_code=status.HTTP_303_SEE_OTHER,
         )
     
-    client = ZerodhaClient()
-    access_token = await client.handle_callback(request_token)
+    client = ZerodhaClient(api_key=callback_api_key)
+    access_token = await client.handle_callback(request_token, api_secret=callback_secret)
     profile = await client.get_profile()
 
     connection = BrokerConnection(

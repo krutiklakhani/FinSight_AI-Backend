@@ -18,18 +18,24 @@ logger = logging.getLogger(__name__)
 class ZerodhaClient(BaseBroker):
     """Kite Connect v3 wrapper (read-only) with simulator fallback."""
 
-    def __init__(self, access_token: str | None = None, api_key: str | None = None) -> None:
-        self.api_key = api_key or settings.KITE_API_KEY or "your-kite-api-key"
+    def __init__(
+        self,
+        access_token: str | None = None,
+        api_key: str | None = None,
+        api_secret: str | None = None,
+    ) -> None:
+        self.api_key = api_key or settings.KITE_API_KEY
+        self.api_secret = api_secret or settings.KITE_API_SECRET
+        if not self.api_key and not settings.KITE_SIMULATOR_MODE:
+            raise ValueError("KITE_API_KEY is not configured for Zerodha login")
         self._kite = KiteConnect(api_key=self.api_key)
         self.access_token = access_token
         if access_token:
             self._kite.set_access_token(access_token)
             
     def _is_simulator(self) -> bool:
-        mock_keys = {"your-kite-api-key", "kite_sim_key", "SIMULATOR"}
-        return (
-            self.api_key in mock_keys
-            or (self.access_token is not None and self.access_token.startswith("mock"))
+        return settings.KITE_SIMULATOR_MODE or (
+            self.access_token is not None and self.access_token.startswith("mock")
         )
 
     # ── OAuth flow helpers ───────────────────────────────────────────────
@@ -40,13 +46,16 @@ class ZerodhaClient(BaseBroker):
             return "https://fin-sight-ai-frontend.vercel.app/profile?broker=zerodha&status=callback&request_token=mock_zerodha_token"
         return self._kite.login_url()
 
-    async def handle_callback(self, request_token: str) -> str:
+    async def handle_callback(self, request_token: str, api_secret: str | None = None) -> str:
         """Exchange a *request_token* from the OAuth callback for an access token."""
         if self._is_simulator() or request_token.startswith("mock"):
             return "mock_zerodha_access_token"
+        secret = api_secret or self.api_secret
+        if not secret and not settings.KITE_SIMULATOR_MODE:
+            raise ValueError("KITE_API_SECRET is not configured for Zerodha callback exchange")
         data = self._kite.generate_session(
             request_token,
-            api_secret=settings.KITE_API_SECRET,
+            api_secret=secret,
         )
         access_token: str = data["access_token"]
         self._kite.set_access_token(access_token)

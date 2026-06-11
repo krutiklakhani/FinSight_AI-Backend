@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     # ── Zerodha Kite Connect ─────────────────────────────────────────────
     KITE_API_KEY: str = ""
     KITE_API_SECRET: str = ""
+    KITE_SIMULATOR_MODE: bool = False
     KITE_REDIRECT_URI: str = "https://finsight-ai-backend-b37j.onrender.com/api/v1/broker/callback/zerodha"
     FRONTEND_URL: str = "https://fin-sight-ai-frontend.vercel.app"
 
