@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.redis import cache_set
+from app.core.redis import cache_set, cache_get
 from app.core.security import encrypt_token, generate_state
 from app.integrations.angelone import AngelOneClient
 from app.integrations.binance import BinanceClient
@@ -87,16 +87,37 @@ async def connect_zerodha(
     await cache_set(f"zerodha_state:{state}", str(current_user.id), ttl=600)
     client = ZerodhaClient()
     login_url = client.get_login_url()
-    return {"login_url": login_url, "state": state}
+    # Append state parameter so Zerodha passes it back in the callback
+    login_url_with_state = f"{login_url}&state={state}"
+    return {"login_url": login_url_with_state, "state": state}
 
 
 @router.get("/callback/zerodha")
 async def callback_zerodha(
     request_token: str,
+    state: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> BrokerConnectionResponse:
+) -> RedirectResponse:
     """Handle the OAuth callback from Zerodha, store encrypted token and sync."""
+    # Look up user from Redis using state (set during initial OAuth request)
+    user_id_str = await cache_get(f"zerodha_state:{state}")
+    if not user_id_str:
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        return RedirectResponse(
+            url=f"{frontend_url}/profile?broker=zerodha&status=error&message=State+expired",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    
+    # Fetch the user from the database
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
+    current_user = result.scalar_one_or_none()
+    if not current_user:
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        return RedirectResponse(
+            url=f"{frontend_url}/profile?broker=zerodha&status=error&message=User+not+found",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    
     client = ZerodhaClient()
     access_token = await client.handle_callback(request_token)
     profile = await client.get_profile()
