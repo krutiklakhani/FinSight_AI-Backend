@@ -8,15 +8,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 import logging
+import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.redis import cache_set, cache_get
+from app.core.redis import cache_set, cache_get, cache_delete
 from app.core.security import encrypt_token, generate_state
 from app.integrations.angelone import AngelOneClient
 from app.integrations.binance import BinanceClient
@@ -85,26 +86,58 @@ async def connect_zerodha(
     # Fallback to OAuth flow if no credentials provided
     state = generate_state()
     await cache_set(f"zerodha_state:{state}", str(current_user.id), ttl=600)
+    callback_token = secrets.token_urlsafe(32)
+    await cache_set(f"zerodha_callback:{callback_token}", str(current_user.id), ttl=600)
     client = ZerodhaClient()
     login_url = client.get_login_url()
     # Note: we append state but Zerodha may not echo it back; callback handles both cases
     login_url_with_state = f"{login_url}&state={state}"
-    return {"login_url": login_url_with_state, "state": state}
+    response = JSONResponse(
+        {
+            "login_url": login_url_with_state,
+            "loginUrl": login_url_with_state,
+            "redirect_url": login_url_with_state,
+            "state": state,
+            "callback_token": callback_token,
+        }
+    )
+    response.set_cookie(
+        key="zerodha_callback_token",
+        value=callback_token,
+        max_age=600,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+    return response
 
 
-@router.get("/callback/zerodha")
+@router.get("/callback/{callback_path:path}")
 async def callback_zerodha(
     request_token: str,
+    callback_path: str,
+    request: Request,
     state: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     """Handle the OAuth callback from Zerodha, store encrypted token and sync."""
     frontend_url = settings.FRONTEND_URL.rstrip("/")
     
+    # Prefer the short-lived cookie set at connect time, since Zerodha does not
+    # reliably echo custom query parameters back on the callback.
+    cookie_token = request.cookies.get("zerodha_callback_token") if request else None
+
     # Try to look up user from state first (if Zerodha passed it back)
     current_user = None
     if state:
         user_id_str = await cache_get(f"zerodha_state:{state}")
+        if user_id_str:
+            result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
+            current_user = result.scalar_one_or_none()
+
+    if not current_user and cookie_token:
+        user_id_str = await cache_get(f"zerodha_callback:{cookie_token}")
         if user_id_str:
             result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
             current_user = result.scalar_one_or_none()
@@ -138,6 +171,9 @@ async def callback_zerodha(
     )
     db.add(connection)
     await db.flush()
+
+    if cookie_token:
+        await cache_delete(f"zerodha_callback:{cookie_token}")
     
     # Sync holdings immediately
     try:
