@@ -10,9 +10,11 @@ from datetime import datetime, timezone
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.redis import cache_set
 from app.core.security import encrypt_token, generate_state
@@ -118,7 +120,11 @@ async def callback_zerodha(
         logger.error(f"Failed to sync Zerodha holdings on connection: {e}")
         
     await db.refresh(connection)
-    return BrokerConnectionResponse.model_validate(connection)
+    frontend_url = settings.FRONTEND_URL.rstrip("/")
+    return RedirectResponse(
+        url=f"{frontend_url}/profile?broker=zerodha&status=connected",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 # ── Angel One login ─────────────────────────────────────────────────────

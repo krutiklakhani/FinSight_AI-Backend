@@ -75,7 +75,8 @@ class Settings(BaseSettings):
     # ── Zerodha Kite Connect ─────────────────────────────────────────────
     KITE_API_KEY: str = ""
     KITE_API_SECRET: str = ""
-    KITE_REDIRECT_URI: str = "http://localhost:8000/api/v1/broker/callback/zerodha"
+    KITE_REDIRECT_URI: str = "https://finsight-ai-backend-b37j.onrender.com/api/v1/broker/callback/zerodha"
+    FRONTEND_URL: str = "https://fin-sight-ai-frontend.vercel.app"
 
     # ── Angel One SmartAPI ───────────────────────────────────────────────
     ANGEL_API_KEY: str = ""
