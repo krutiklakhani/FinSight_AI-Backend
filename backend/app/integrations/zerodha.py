@@ -37,7 +37,7 @@ class ZerodhaClient(BaseBroker):
     def get_login_url(self) -> str:
         """Return the Kite login URL for the user to authorise the app."""
         if self._is_simulator():
-            return "http://localhost:3000/profile?broker=zerodha&status=callback&request_token=mock_zerodha_token"
+            return "https://fin-sight-ai-frontend.vercel.app/profile?broker=zerodha&status=callback&request_token=mock_zerodha_token"
         return self._kite.login_url()
 
     async def handle_callback(self, request_token: str) -> str:

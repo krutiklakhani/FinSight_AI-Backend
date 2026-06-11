@@ -60,7 +60,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    # Temporarily allow all origins to rapidly unblock frontend during debugging/deploy.
+    # IMPORTANT: revert to `settings.CORS_ORIGINS` after verifying the fix in production.
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -70,6 +72,12 @@ app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(broker.router, prefix=settings.API_V1_PREFIX)
 app.include_router(portfolio.router, prefix=settings.API_V1_PREFIX)
 app.include_router(analytics.router, prefix=settings.API_V1_PREFIX)
+
+# Backward-compatible aliases for deployed clients that still call the root paths.
+app.include_router(auth.router)
+app.include_router(broker.router)
+app.include_router(portfolio.router)
+app.include_router(analytics.router)
 
 
 @app.get("/")
@@ -139,3 +147,8 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         await websocket.close()
+
+
+@app.websocket("/ws")
+async def websocket_endpoint_legacy(websocket: WebSocket):
+    await websocket_endpoint(websocket)
