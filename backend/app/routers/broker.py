@@ -132,79 +132,24 @@ async def connect_zerodha(
     return response
 
 
-@router.get("/callback/{callback_path:path}")
+@router.get("/callback/{callback_path:path}", response_model=BrokerConnectionResponse | dict)
 async def callback_zerodha(
     callback_path: str,
-    request: Request,
-    *,
-    request_token: str | None = None,
-    state: str | None = None,
-    callback_status: str | None = Query(None, alias="status"),
-    message: str | None = None,
+    request_token: str = Query(..., description="The request token from Kite"),
     db: AsyncSession = Depends(get_db),
-) -> RedirectResponse:
-    """Handle the OAuth callback from Zerodha, store encrypted token and sync."""
-    frontend_url = settings.FRONTEND_URL.rstrip("/")
-    if state:
-        dynamic_origin = await cache_get(f"zerodha_origin:{state}")
-        if dynamic_origin:
-            frontend_url = dynamic_origin.rstrip("/")
+    current_user: User = Depends(get_current_user),
+) -> BrokerConnectionResponse | dict:
+    """Handle the OAuth callback from Zerodha via Frontend API call, store encrypted token and sync."""
+    if callback_path != "zerodha":
+        raise HTTPException(status_code=400, detail="Unsupported broker callback")
 
-    if not frontend_url.startswith("http"):
-        frontend_url = f"https://{frontend_url}"
-    logger.debug("Zerodha callback received on path: %s", callback_path)
-
-    if callback_status == "error" or not request_token:
-        error_message = message or "Session expired"
-        return RedirectResponse(
-            url=f"{frontend_url}/dashboard?{urlencode({'broker': 'zerodha', 'status': 'error', 'message': error_message})}",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-    
-    # Prefer the short-lived cookie set at connect time, since Zerodha does not
-    # reliably echo custom query parameters back on the callback.
-    cookie_token = request.cookies.get("zerodha_callback_token") if request else None
-    callback_api_key = None
-    callback_secret = None
-
-    # Try to look up user from state first (if Zerodha passed it back)
-    current_user = None
-    if state:
-        user_id_str = await cache_get(f"zerodha_state:{state}")
-        if user_id_str:
-            result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
-            current_user = result.scalar_one_or_none()
-
-    if not current_user and cookie_token:
-        user_id_str = await cache_get(f"zerodha_callback:{cookie_token}")
-        if user_id_str:
-            result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
-            current_user = result.scalar_one_or_none()
-        callback_api_key = await cache_get(f"zerodha_api_key:{cookie_token}")
-        callback_secret = await cache_get(f"zerodha_secret:{cookie_token}")
-    
-    # If state didn't work, check if request_token is mapped to a user
-    if not current_user:
-        user_id_str = await cache_get(f"zerodha_token:{request_token}")
-        if user_id_str:
-            result = await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
-            current_user = result.scalar_one_or_none()
-
-    if not callback_api_key and state:
-        callback_api_key = await cache_get(f"zerodha_api_key:{state}")
-    if not callback_secret and state:
-        callback_secret = await cache_get(f"zerodha_secret:{state}")
-    
-    # If we still don't have a user, return error
-    if not current_user:
-        return RedirectResponse(
-            url=f"{frontend_url}/dashboard?broker=zerodha&status=error&message=Session+expired",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-    
-    client = ZerodhaClient(api_key=callback_api_key)
-    access_token = await client.handle_callback(request_token, api_secret=callback_secret)
-    profile = await client.get_profile()
+    client = ZerodhaClient()
+    try:
+        access_token = await client.handle_callback(request_token)
+        profile = await client.get_profile()
+    except Exception as e:
+        logger.error(f"Failed to exchange Zerodha token: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to connect to Zerodha: {e}")
 
     connection = BrokerConnection(
         user_id=current_user.id,
@@ -218,9 +163,6 @@ async def callback_zerodha(
     db.add(connection)
     await db.flush()
 
-    if cookie_token:
-        await cache_delete(f"zerodha_callback:{cookie_token}")
-    
     # Sync holdings immediately
     try:
         await sync_broker_holdings(db, current_user.id, connection.id)
@@ -228,11 +170,9 @@ async def callback_zerodha(
         logger.error(f"Failed to sync Zerodha holdings on connection: {e}")
         
     await db.refresh(connection)
-    # Use the dynamic frontend URL to redirect back to the dashboard
-    return RedirectResponse(
-        url=f"{frontend_url}/dashboard?broker=zerodha&status=connected",
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    
+    # Return JSON response back to the frontend API caller
+    return BrokerConnectionResponse.model_validate(connection)
 
 
 # ── Angel One login ─────────────────────────────────────────────────────
