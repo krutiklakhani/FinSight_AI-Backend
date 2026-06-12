@@ -31,6 +31,7 @@ class BinanceClient(BaseBroker):
         return (
             self.api_key == "your-binance-api-key"
             or self.api_key.startswith("mock")
+            or self.api_key == "SIMULATOR"
         )
 
     async def _ensure_client(self) -> BinanceAsyncClient:
