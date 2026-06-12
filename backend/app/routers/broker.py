@@ -199,11 +199,18 @@ async def connect_angelone(
         )
 
     client = AngelOneClient()
-    session = await client.login(
-        client_id=client_id,
-        password=password,
-        totp_secret=totp_secret,
-    )
+    try:
+        session = await client.login(
+            client_id=client_id,
+            password=password,
+            totp_secret=totp_secret,
+        )
+    except Exception as e:
+        logger.error(f"Failed to connect to Angel One: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid Angel One credentials: {e}",
+        )
 
     connection = BrokerConnection(
         user_id=current_user.id,
@@ -259,6 +266,13 @@ async def connect_binance(
     )
     try:
         profile = await client.get_profile()
+    except Exception as e:
+        logger.error(f"Failed to connect to Binance: {e}")
+        await client.close()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid Binance credentials or connection error: {e}",
+        )
     finally:
         await client.close()
 
