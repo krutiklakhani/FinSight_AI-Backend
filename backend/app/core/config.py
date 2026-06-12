@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     BINANCE_API_SECRET: str = ""
 
     # ── CORS ─────────────────────────────────────────────────────────────
-    CORS_ORIGINS: list[str] = [
+    CORS_ORIGINS: str | list[str] = [
         "https://fin-sight-ai-frontend.vercel.app",
         "https://fin-sight-ai-frontend-1hafyqt9d.vercel.app",
         "http://localhost:3000",
