@@ -43,6 +43,7 @@ router = APIRouter(prefix="/broker", tags=["Broker Connections"])
 @router.post("/connect/zerodha", response_model=BrokerConnectionResponse | dict)
 @router.post("/zerodha/connect", response_model=BrokerConnectionResponse | dict)
 async def connect_zerodha(
+    request: Request,
     payload: BrokerConnectRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -87,6 +88,10 @@ async def connect_zerodha(
 
     # Fallback to OAuth flow if no credentials provided
     state = generate_state()
+    origin = request.headers.get("origin")
+    if origin:
+        await cache_set(f"zerodha_origin:{state}", origin, ttl=600)
+    
     await cache_set(f"zerodha_state:{state}", str(current_user.id), ttl=600)
     callback_token = secrets.token_urlsafe(32)
     await cache_set(f"zerodha_callback:{callback_token}", str(current_user.id), ttl=600)
@@ -140,6 +145,11 @@ async def callback_zerodha(
 ) -> RedirectResponse:
     """Handle the OAuth callback from Zerodha, store encrypted token and sync."""
     frontend_url = settings.FRONTEND_URL.rstrip("/")
+    if state:
+        dynamic_origin = await cache_get(f"zerodha_origin:{state}")
+        if dynamic_origin:
+            frontend_url = dynamic_origin.rstrip("/")
+
     if not frontend_url.startswith("http"):
         frontend_url = f"https://{frontend_url}"
     logger.debug("Zerodha callback received on path: %s", callback_path)
@@ -147,7 +157,7 @@ async def callback_zerodha(
     if callback_status == "error" or not request_token:
         error_message = message or "Session expired"
         return RedirectResponse(
-            url=f"{frontend_url}/profile?{urlencode({'broker': 'zerodha', 'status': 'error', 'message': error_message})}",
+            url=f"{frontend_url}/dashboard?{urlencode({'broker': 'zerodha', 'status': 'error', 'message': error_message})}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     
@@ -188,7 +198,7 @@ async def callback_zerodha(
     # If we still don't have a user, return error
     if not current_user:
         return RedirectResponse(
-            url=f"{frontend_url}/profile?broker=zerodha&status=error&message=Session+expired",
+            url=f"{frontend_url}/dashboard?broker=zerodha&status=error&message=Session+expired",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     
@@ -218,11 +228,9 @@ async def callback_zerodha(
         logger.error(f"Failed to sync Zerodha holdings on connection: {e}")
         
     await db.refresh(connection)
-    frontend_url = settings.FRONTEND_URL.rstrip("/")
-    if not frontend_url.startswith("http"):
-        frontend_url = f"https://{frontend_url}"
+    # Use the dynamic frontend URL to redirect back to the dashboard
     return RedirectResponse(
-        url=f"{frontend_url}/profile?broker=zerodha&status=connected",
+        url=f"{frontend_url}/dashboard?broker=zerodha&status=connected",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
