@@ -140,6 +140,8 @@ async def callback_zerodha(
 ) -> RedirectResponse:
     """Handle the OAuth callback from Zerodha, store encrypted token and sync."""
     frontend_url = settings.FRONTEND_URL.rstrip("/")
+    if not frontend_url.startswith("http"):
+        frontend_url = f"https://{frontend_url}"
     logger.debug("Zerodha callback received on path: %s", callback_path)
 
     if callback_status == "error" or not request_token:
@@ -217,6 +219,8 @@ async def callback_zerodha(
         
     await db.refresh(connection)
     frontend_url = settings.FRONTEND_URL.rstrip("/")
+    if not frontend_url.startswith("http"):
+        frontend_url = f"https://{frontend_url}"
     return RedirectResponse(
         url=f"{frontend_url}/profile?broker=zerodha&status=connected",
         status_code=status.HTTP_303_SEE_OTHER,
