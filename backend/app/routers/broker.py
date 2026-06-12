@@ -9,8 +9,9 @@ import uuid
 from datetime import datetime, timezone
 import logging
 import secrets
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -128,14 +129,25 @@ async def connect_zerodha(
 
 @router.get("/callback/{callback_path:path}")
 async def callback_zerodha(
-    request_token: str,
     callback_path: str,
     request: Request,
+    *,
+    request_token: str | None = None,
     state: str | None = None,
+    callback_status: str | None = Query(None, alias="status"),
+    message: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     """Handle the OAuth callback from Zerodha, store encrypted token and sync."""
     frontend_url = settings.FRONTEND_URL.rstrip("/")
+    logger.debug("Zerodha callback received on path: %s", callback_path)
+
+    if callback_status == "error" or not request_token:
+        error_message = message or "Session expired"
+        return RedirectResponse(
+            url=f"{frontend_url}/profile?{urlencode({'broker': 'zerodha', 'status': 'error', 'message': error_message})}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     
     # Prefer the short-lived cookie set at connect time, since Zerodha does not
     # reliably echo custom query parameters back on the callback.
