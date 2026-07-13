@@ -102,7 +102,7 @@ async def connect_zerodha(
         await cache_set(f"zerodha_secret:{callback_token}", api_secret, ttl=600)
         await cache_set(f"zerodha_secret:{state}", api_secret, ttl=600)
     try:
-        client = ZerodhaClient()
+        client = ZerodhaClient(api_key=api_key, api_secret=api_secret)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -135,15 +135,43 @@ async def connect_zerodha(
 @router.get("/callback/{callback_path:path}", response_model=BrokerConnectionResponse | dict)
 async def callback_zerodha(
     callback_path: str,
+    request: Request,
     request_token: str = Query(..., description="The request token from Kite"),
+    state: str | None = Query(default=None, description="OAuth state token"),
+    callback_token: str | None = Query(default=None, description="Internal callback token"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> BrokerConnectionResponse | dict:
-    """Handle the OAuth callback from Zerodha via Frontend API call, store encrypted token and sync."""
+    """Handle the OAuth callback from Zerodha, store encrypted token and sync."""
     if callback_path != "zerodha":
         raise HTTPException(status_code=400, detail="Unsupported broker callback")
 
-    client = ZerodhaClient()
+    lookup_tokens = [
+        callback_token,
+        state,
+        request.cookies.get("zerodha_callback_token"),
+        request.query_params.get("state"),
+        request.query_params.get("callback_token"),
+    ]
+
+    user_id: uuid.UUID | None = None
+    api_key: str | None = None
+    api_secret: str | None = None
+
+    for token in [token for token in lookup_tokens if token]:
+        cached_user_id = await cache_get(f"zerodha_callback:{token}") or await cache_get(f"zerodha_state:{token}")
+        if cached_user_id:
+            user_id = uuid.UUID(str(cached_user_id))
+            api_key = await cache_get(f"zerodha_api_key:{token}") or api_key
+            api_secret = await cache_get(f"zerodha_secret:{token}") or api_secret
+            break
+
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unable to resolve Zerodha callback session. Please restart the connection flow.",
+        )
+
+    client = ZerodhaClient(api_key=api_key, api_secret=api_secret)
     try:
         access_token = await client.handle_callback(request_token)
         profile = await client.get_profile()
@@ -152,7 +180,7 @@ async def callback_zerodha(
         raise HTTPException(status_code=400, detail=f"Failed to connect to Zerodha: {e}")
 
     connection = BrokerConnection(
-        user_id=current_user.id,
+        user_id=user_id,
         broker_name=BrokerName.zerodha,
         encrypted_access_token=encrypt_token(access_token),
         broker_user_id=profile.get("broker_user_id"),
@@ -165,7 +193,7 @@ async def callback_zerodha(
 
     # Sync holdings immediately
     try:
-        await sync_broker_holdings(db, current_user.id, connection.id)
+        await sync_broker_holdings(db, user_id, connection.id)
     except Exception as e:
         logger.error(f"Failed to sync Zerodha holdings on connection: {e}")
         
